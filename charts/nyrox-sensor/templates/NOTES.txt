@@ -1,0 +1,9 @@
+Nyrox runtime sensor {{ .Chart.AppVersion }} is installed in namespace {{ .Release.Namespace }}.
+
+  kubectl -n {{ .Release.Namespace }} get pods
+
+One sensor pod per node, plus the forwarder. Alerts reach Nyrox only once the
+Secret {{ .Values.falco.falcosidekick.config.existingSecret }} holds the address and token shown in
+Nyrox > Connectors > Nyrox runtime sensor > Sensor setup.
+
+Components and licences: /usr/share/nyrox/THIRD_PARTY_NOTICES.md in each image.

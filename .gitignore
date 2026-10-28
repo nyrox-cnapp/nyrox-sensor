@@ -1,0 +1,3 @@
+*.tgz
+!charts/nyrox-sensor/charts/*.tgz
+.DS_Store

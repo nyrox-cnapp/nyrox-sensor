@@ -1,0 +1,26 @@
+# Nyrox rules, loaded after Falco's default rules (/etc/falco/falco_rules.yaml).
+
+# Workloads that call the instance metadata service on purpose (cloud agents
+# on nodes without IRSA / workload identity): list their image repositories
+# here, or override this list from the chart's customRules.
+- list: nyrox_metadata_allowed_images
+  items: []
+
+# Critical so that Nyrox investigates it on arrival. Fires on clouds where the
+# metadata address answers; elsewhere the connection hangs and never
+# completes, so there is no event to match.
+- rule: Nyrox contact cloud instance metadata from container
+  desc: >
+    A process in a container connected to the cloud instance metadata
+    service (169.254.169.254), from which node and role credentials can
+    be read.
+  condition: >
+    evt.type = connect and fd.sip = "169.254.169.254" and container.id != host
+    and not container.image.repository in (nyrox_metadata_allowed_images)
+  output: >
+    Connection to the instance metadata service from a container
+    (command=%proc.cmdline process=%proc.name parent=%proc.pname
+    connection=%fd.name image=%container.image.repository:%container.image.tag
+    namespace=%k8s.ns.name pod=%k8s.pod.name)
+  priority: CRITICAL
+  tags: [container, network, mitre_credential_access, T1552.005]

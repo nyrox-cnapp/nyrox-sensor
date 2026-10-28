@@ -1,0 +1,150 @@
+# Nyrox runtime sensor.
+#
+#   helm install nyrox-sensor ./charts/nyrox-sensor -n nyrox-sensor --create-namespace
+#
+# Two images, both public on ghcr.io:
+#   nyrox-runtime-sensor    one pod per node; eBPF (no kernel module, needs a
+#                           kernel >= 5.8 with BTF, e.g. 5.15 or 6.8). Carries
+#                           its rules and plugin: it downloads nothing.
+#   nyrox-sensor-forwarder  posts each alert to Nyrox with the connector token.
+#
+# Where alerts go, and the token, are NOT in this file: they come from a
+# Secret created out of band and never committed. Copy both values from
+# Nyrox > Connectors > Nyrox runtime sensor > Sensor setup:
+#
+#   kubectl -n nyrox-sensor create secret generic nyrox-sensor-webhook \
+#     --from-literal=WEBHOOK_ADDRESS='https://<nyrox address>/api/ingest/runtime/<connector id>' \
+#     --from-literal=WEBHOOK_CUSTOMHEADERS='Authorization:Bearer <token>'
+#
+# The engine is Falco 0.45.0 / Falcosidekick 2.32.0 (CNCF, Apache-2.0), through
+# the Falco chart vendored in charts/. Everything below configures that chart.
+
+falco:
+  # Resources are named nyrox-sensor (DaemonSet) and nyrox-sensor-forwarder.
+  fullnameOverride: nyrox-sensor
+
+  image:
+    registry: ghcr.io
+    repository: nyrox-cnapp/nyrox-runtime-sensor
+    tag: "v1.0.0"
+  # Only for a private mirror of the images.
+  imagePullSecrets: []
+
+  driver:
+    enabled: true
+    kind: modern_ebpf
+    modernEbpf:
+      # Privileged rather than the least-privileged capability set: the latter
+      # needs CAP_BPF/CAP_PERFMON support that not every node runtime grants.
+      leastPrivileged: false
+
+  # Every node, control-plane nodes included: an attacker on a control-plane
+  # node is the one most worth seeing.
+  tolerations:
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/master
+      operator: Exists
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/control-plane
+      operator: Exists
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+
+  # container.* and k8s.ns.name / k8s.pod.name come from the container
+  # runtime, through the container plugin already in the image. The chart
+  # still writes the plugin's configuration; it does not fetch it, because
+  # falcoctl is off below.
+  collectors:
+    enabled: true
+    containerEngine:
+      enabled: true
+    # No k8s-metacollector: namespace and pod come from the runtime's labels.
+    kubernetes:
+      enabled: false
+
+  # Nothing is downloaded when the sensor starts: rules and plugin are in the
+  # image, and they change with a Nyrox release, not on their own.
+  falcoctl:
+    artifact:
+      install:
+        enabled: false
+      follow:
+        enabled: false
+
+  falco:
+    # Rules in the image: Falco's defaults, then Nyrox's (rules.d).
+    rules_files:
+      - /etc/falco/falco_rules.yaml
+      - /etc/falco/falco_rules.local.yaml
+      - /etc/falco/rules.d
+    # Alerts go to the forwarder. Named here because the chart would derive
+    # "<falco fullname>-falcosidekick", which is not the forwarder's name.
+    http_output:
+      enabled: true
+      url: "http://nyrox-sensor-forwarder:2801"
+    json_output: true
+    json_include_output_property: true
+    json_include_tags_property: true
+    # What Nyrox's investigation reads from every alert, whatever the rule's
+    # own output names: the process, its parent and grandparents, the user,
+    # the pod and the image. Added as JSON fields only (the message text is
+    # unchanged).
+    append_output:
+      - suggested_output: true
+      - match:
+          source: syscall
+        extra_fields:
+          - proc.name
+          - proc.exepath
+          - proc.cmdline
+          - proc.pid
+          - proc.pname
+          - proc.pcmdline
+          - proc.aname[2]
+          - proc.aname[3]
+          - proc.aname[4]
+          - user.name
+          - user.uid
+          - container.id
+          - container.name
+          - container.image.repository
+          - container.image.tag
+          - container.image.digest
+          - k8s.ns.name
+          - k8s.pod.name
+
+  falcosidekick:
+    enabled: true
+    fullnameOverride: nyrox-sensor-forwarder
+    replicaCount: 1
+    image:
+      registry: ghcr.io
+      repository: nyrox-cnapp/nyrox-sensor-forwarder
+      tag: "v1.0.0"
+    imagePullSecrets: []
+    resources:
+      requests:
+        cpu: 20m
+        memory: 32Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    config:
+      # WEBHOOK_ADDRESS and WEBHOOK_CUSTOMHEADERS (see the top of this file).
+      existingSecret: nyrox-sensor-webhook
+      # Optional: the cluster's name as Nyrox's Kubernetes connector knows it,
+      # so a pod name present in two connected clusters is not ambiguous.
+      # customfields: "nyrox_cluster:<cluster name>"
+      webhook:
+        method: POST
+        # Notice and above reach Nyrox (informational/debug stay on the node).
+        minimumpriority: notice
+        checkcert: true
+    webui:
+      enabled: false

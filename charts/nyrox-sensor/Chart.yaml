@@ -1,0 +1,31 @@
+apiVersion: v2
+name: nyrox-sensor
+description: >-
+  Nyrox runtime sensor: watches the system calls of every container on every
+  node (eBPF, no kernel module) and sends its alerts to Nyrox, where they are
+  linked to the inventory and investigated.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+home: https://nyrox.app/docs/runtime-sensor
+sources:
+  - https://github.com/nyrox-cnapp/nyrox-sensor
+maintainers:
+  - name: NYVRA
+    url: https://github.com/nyrox-cnapp
+keywords:
+  - security
+  - runtime
+  - nyrox
+  - falco
+  - ebpf
+# The engine is Falco (CNCF, Apache-2.0). Its chart is declared here so that
+# its own switches (forwarder on, response actions and metacollector off)
+# apply, and VENDORED in charts/ (falco-9.2.0.tgz, with Chart.lock): the
+# install never fetches it, so it needs no third-party repository and works
+# without internet access. Upgrading: `helm dependency update` with the new
+# version, then rebuild the runtime-sensor image on the matching Falco.
+dependencies:
+  - name: falco
+    version: "9.2.0"
+    repository: https://falcosecurity.github.io/charts
