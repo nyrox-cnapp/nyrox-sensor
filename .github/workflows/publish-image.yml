@@ -28,12 +28,16 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-24.04
-    env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/nyrox-${{ inputs.image }}
-      TAG: ${{ inputs.tag }}
     steps:
       - name: Tag looks like vX.Y.Z
-        run: echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "bad tag: $TAG"; exit 1; }
+        env:
+          TAG: ${{ inputs.tag }}
+          NAME: ${{ inputs.image }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "bad tag: $TAG"; exit 1; }
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "IMAGE=ghcr.io/$OWNER/nyrox-$NAME" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: docker/login-action@v3
         with:
